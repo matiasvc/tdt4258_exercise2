@@ -2,6 +2,7 @@
 #include <stdbool.h>
 
 #include "efm32gg.h"
+#include "audioMixer.h"
 
 /* 
   TODO calculate the appropriate sample period for the sound wave(s) 
@@ -10,24 +11,27 @@
   registers are 16 bits.
 */
 /* The period between sound samples, in clock cycles */
-#define   SAMPLE_PERIOD   0xFFFF
+#define   SAMPLE_PERIOD   1750
 
 /* Declaration of peripheral setup functions */
 void setupGPIO();
 void setupTimer(uint32_t period);
 void setupDAC();
 void setupNVIC();
+void setupMixer();
 
 /* Your code will start executing here */
 int main(void)
 {
 	/* Call the peripheral setup functions */
 	setupGPIO();
+   setupMixer();
 	setupDAC();
 	setupTimer(SAMPLE_PERIOD);
 
 	/* Enable interrupt handling */
 	setupNVIC();
+
 
 	/* TODO for higher energy efficiency, sleep while waiting for interrupts
 	   instead of infinite loop for busy-waiting
