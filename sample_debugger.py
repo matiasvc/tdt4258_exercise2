@@ -2,7 +2,7 @@ import struct
 import matplotlib.pyplot as plt
 
 # Use:
-# dump binary memory samples 0x20000128 0x20002126
+# dump binary memory samples 0x20000040 0x2000FA40
 # in gdb to dump memory
 
 right = []

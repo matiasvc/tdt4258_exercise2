@@ -4,30 +4,27 @@
 #include "efm32gg.h"
 #include "audioMixer.h"
 
-/* 
-  TODO calculate the appropriate sample period for the sound wave(s) 
-  you want to generate. The core clock (which the timer clock is derived
-  from) runs at 14 MHz by default. Also remember that the timer counter
-  registers are 16 bits.
-*/
-/* The period between sound samples, in clock cycles */
-#define   SAMPLE_PERIOD   1750
+#define   FIXEDPT_WBITS 16 // Use 16 bits of the fixed point type for whole number part
+#define   SAMPLE_PERIOD 875 // Gives 16000 samples per second
+#define   FRAME_PERIOD  58333 // Gives 30 frames per second
 
 /* Declaration of peripheral setup functions */
 void setupGPIO();
-void setupTimer(uint32_t period);
+void setupTimer(uint16_t timer1Period, uint16_t timer2Period);
 void setupDAC();
 void setupNVIC();
 void setupMixer();
+
+static uint8_t lastInput = 0xFF;
 
 /* Your code will start executing here */
 int main(void)
 {
 	/* Call the peripheral setup functions */
 	setupGPIO();
-   setupMixer();
+   //setupMixer();
 	setupDAC();
-	setupTimer(SAMPLE_PERIOD);
+	setupTimer(SAMPLE_PERIOD, FRAME_PERIOD);
 
 	/* Enable interrupt handling */
 	setupNVIC();
@@ -36,7 +33,32 @@ int main(void)
 	/* TODO for higher energy efficiency, sleep while waiting for interrupts
 	   instead of infinite loop for busy-waiting
 	 */
-	while (1) ;
+
+   AudioEffect effect = {};
+   effect.type = NOISE;
+   effect.attackTime = 0.1;
+   effect.sustainTime = 0.3;
+   effect.decayTime = 0.5;
+   effect.attackVolume = 
+   effect.attackFrequency = 100;
+   effect.sustainFrequency = 1000;
+   effect.decayFrequency = 300;
+   effect.frequencyAttackTransition = EASE_IN;
+   effect.frequencyDecayTransition = EASE_OUT;
+	while (1)
+   {
+      *GPIO_PA_DOUT = 0x0000;
+      renderAudio();
+      *GPIO_PA_DOUT = 0xFF00;
+      playEffect(effect);
+      uint8_t currentInput = *GPIO_PC_DIN;
+
+      if (currentInput != lastInput)
+      {  
+         lastInput = currentInput;
+      }
+
+   }
 
 	return 0;
 }
@@ -50,8 +72,11 @@ void setupNVIC()
 	   You will need TIMER1, GPIO odd and GPIO even interrupt handling for this
 	   assignment.
 	 */
-   *ISER0 = *ISER0 | (1 << 12); // Enable timer interrups in NVIC
-   *ISER0 = *ISER0 | 0x802;
+   // Enable timer interrups in NVIC
+   // GPIO_EVEN | GPIO_ODD | TIMER1 | TIMER2
+   *ISER0 = *ISER0 | (1 << 1) | (1 << 11) | (1 << 12) | (1 << 13);
+   //*IPR12 = 0b00000000;
+   //*IPR13 = 0b11100000;
 }
 
 /* if other interrupt handlers are needed, use the following names: 

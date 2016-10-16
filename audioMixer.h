@@ -2,6 +2,7 @@
 #define AUDIO_MIXER_H
 
 #include <stdlib.h>
+#include "fixedptc.h"
 
 typedef struct
 {
@@ -13,14 +14,12 @@ typedef enum
 {
 	 SINE,
 	 SQUARE,
-	 TRIANGE,
 	 SAWTOOTH,
 	 NOISE
 } EffectType;
 
 typedef enum
 {
-	INSTANT,
 	EASE_IN,
 	EASE_OUT
 } TransitionType;
@@ -33,11 +32,13 @@ typedef struct
 	float sustainTime;
 	float decayTime;
 
-	uint16_t volume;
+	uint16_t attackVolume;
+	uint16_t sustainVolume;
+	uint16_t decayVolume;
 
 	TransitionType volumeAttackTransition;
 	TransitionType volumeDecayTransition;
-
+ 
 	uint16_t attackFrequency;
 	uint16_t sustainFrequency;
 	uint16_t decayFrequency;
@@ -47,6 +48,7 @@ typedef struct
 } AudioEffect;
 
 void setupMixer();
+void renderAudio();
 AudioSample getNextSample();
 
 #endif

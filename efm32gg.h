@@ -41,6 +41,7 @@
 #define GPIO_EXTIRISE  ((volatile uint32_t*)(GPIO_PA_BASE + 0x108))
 #define GPIO_EXTIFALL  ((volatile uint32_t*)(GPIO_PA_BASE + 0x10c))
 #define GPIO_IEN       ((volatile uint32_t*)(GPIO_PA_BASE + 0x110))
+#define GPIO_IF        ((volatile uint32_t*)(GPIO_PA_BASE + 0x114))
 #define GPIO_IFC       ((volatile uint32_t*)(GPIO_PA_BASE + 0x11c))
 
 // CMU
@@ -63,11 +64,23 @@
 
 #define TIMER1_BASE 0x40010400
 
-#define TIMER1_CMD ((volatile uint32_t*)(TIMER1_BASE + 0x04))
-#define TIMER1_IEN ((volatile uint32_t*)(TIMER1_BASE + 0x0c))
-#define TIMER1_IFC ((volatile uint32_t*)(TIMER1_BASE + 0x18))
-#define TIMER1_TOP ((volatile uint32_t*)(TIMER1_BASE + 0x1c))
-#define TIMER1_CNT ((volatile uint32_t*)(TIMER1_BASE + 0x24))
+#define TIMER1_CTRL ((volatile uint32_t*)(TIMER1_BASE + 0x00))
+#define TIMER1_CMD  ((volatile uint32_t*)(TIMER1_BASE + 0x04))
+#define TIMER1_IEN  ((volatile uint32_t*)(TIMER1_BASE + 0x0c))
+#define TIMER1_IFC  ((volatile uint32_t*)(TIMER1_BASE + 0x18))
+#define TIMER1_TOP  ((volatile uint32_t*)(TIMER1_BASE + 0x1c))
+#define TIMER1_CNT  ((volatile uint32_t*)(TIMER1_BASE + 0x24))
+
+// TIMER2
+
+#define TIMER2_BASE 0x40010800
+
+#define TIMER2_CTRL ((volatile uint32_t*)(TIMER2_BASE + 0x00))
+#define TIMER2_CMD  ((volatile uint32_t*)(TIMER2_BASE + 0x04))
+#define TIMER2_IEN  ((volatile uint32_t*)(TIMER2_BASE + 0x0c))
+#define TIMER2_IFC  ((volatile uint32_t*)(TIMER2_BASE + 0x18))
+#define TIMER2_TOP  ((volatile uint32_t*)(TIMER2_BASE + 0x1c))
+#define TIMER2_CNT  ((volatile uint32_t*)(TIMER2_BASE + 0x24))
 
 // NVIC
 
@@ -90,6 +103,8 @@
 #define IPR1 ((volatile uint32_t*)(IPR_BASE + 0x04))
 #define IPR2 ((volatile uint32_t*)(IPR_BASE + 0x08))
 #define IPR3 ((volatile uint32_t*)(IPR_BASE + 0x0c))
+#define IPR12 ((volatile uint32_t*)(IPR_BASE + 0x30))
+#define IPR13 ((volatile uint32_t*)(IPR_BASE + 0x34))
 
 // EMU
 

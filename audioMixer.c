@@ -4,25 +4,62 @@
 #include "efm32gg.h"
 #include "audioMixer.h"
 
-// 8000 samples per second
-#define SAMPLES_PER_SECOND 8000
-#define SAMPLES 4096
-#define PI (3.141592653589793)
+#include "fixedptc.h"
 
-uint16_t readCursor = 0;
-uint16_t writeCursor = 0;
+#define SAMPLES_PER_SECOND 16000
+#define SAMPLES 16000
+//#define WRITE_AHEAD 1600 // Write samples ahead 1/10 of a second
+#define WRITE_AHEAD 1600
+
+static uint32_t readCursor = 0; // The next sample to be rea dto the DAC
+static uint32_t writeCursor = 0; // The next sample to be rendered
+
+uint32_t sampleTimer = 0; // The current number of samples written to the DAC
 
 // Audio simples are stored as:
-// sample0_right, sample0_left, sample1_right, sample1_left...
+// sample0_right, sample0_left, sample1_right, sample1_left, ...
 static int16_t sampleBuffer[SAMPLES*2];
 
 #define RANDOM_BUFFER_LENGTH 4096
 #define RANDOM_MAX 4294967295
 static uint32_t randomBuffer[RANDOM_BUFFER_LENGTH];
 
+typedef struct
+{
+	AudioEffect effect;
+
+	uint16_t nAttackSamples;
+	uint16_t nSustainSamples;
+	uint16_t nDecaySamples;
+
+	uint32_t startSampleTime;
+	uint32_t endSampleTime;
+
+	uint32_t sustainStartSampleTime;
+	uint32_t decayStartSampleTime;
+
+	fixedpt (*waveFuncPointer)(fixedpt);
+
+	fixedpt (*volumeAttackFuncPointer)(fixedpt, fixedpt, fixedpt);
+	fixedpt (*volumeDecayFuncPointer)(fixedpt, fixedpt, fixedpt);
+
+	fixedpt (*frequenceAttackFuncPointer)(fixedpt, fixedpt, fixedpt);
+	fixedpt (*frequenceDecayFuncPointer)(fixedpt, fixedpt, fixedpt);
+
+	fixedpt attakStartDt;
+	fixedpt sustainDt;
+	fixedpt decayEndDt;
+
+	fixedpt t;
+	fixedpt dt;
+
+} ChannelSample ;
+
+#define NUMBER_OF_EFFECTS 8
+static uint8_t activeChannels;
+static ChannelSample channels[NUMBER_OF_EFFECTS];
 
 void renderEffect(AudioEffect effect);
-
 
 
 void fillRandomBuffer()
@@ -36,125 +73,254 @@ void fillRandomBuffer()
 	}
 }
 
-float squareWave(float t)
+fixedpt squareWave(fixedpt t)
 {
-	float value = sin(t*2*PI)*0.5 + 1;
-	return (float)(((int32_t)value)*2 - 1);
+	//float value = sin(t*2*PI)*0.5 + 1;
+	//return (float)(((int32_t)value)*2 - 1);
+	fixedpt value = fixedpt_sin(fixedpt_mul(t, FIXEDPT_TWO_PI));
+	value = fixedpt_mul(value, FIXEDPT_ONE_HALF) + FIXEDPT_ONE;
+	int32_t squareValue = fixedpt_toint(value)*2 - 1;
+	return fixedpt_fromint(squareValue);
 }
 
-float sineWave(float t)
+fixedpt sineWave(fixedpt t)
 {
-	return sin(t*2*PI);
+	//return sin(t*2*PI);
+	return fixedpt_sin(fixedpt_mul(t, FIXEDPT_TWO_PI));
 }
 
-float sawtoothWave(float t)
+fixedpt sawtoothWave(fixedpt t)
 {
-	return fmod(t, 1.0)*2.0 - 1.0;
+	//return fmod(t, 1.0)*2.0 - 1.0;
+	fixedpt value = t & 0x0000FFFF;
+	return fixedpt_mul(value, FIXEDPT_TWO) - FIXEDPT_ONE;
 }
 
-float noiseWave(float t)
+fixedpt noiseWave(fixedpt t)
 {
-	uint32_t index = ((uint32_t)t) % RANDOM_BUFFER_LENGTH;
-	return (((float)randomBuffer[index]) / RANDOM_MAX)*2 - 1;
+	//uint32_t index = ((uint32_t)t) % RANDOM_BUFFER_LENGTH;
+	//return (((float)randomBuffer[index]) / RANDOM_MAX)*2 - 1;
+	uint32_t index = fixedpt_toint(t) % RANDOM_BUFFER_LENGTH;
+	fixedpt value = fixedpt_div(fixedpt_fromint(index), fixedpt_fromint(RANDOM_MAX));
+	return fixedpt_mul(value, FIXEDPT_TWO) - FIXEDPT_ONE;
 }
 
 
-float easeInQuad(float start, float end, float value)
+fixedpt easeInQuad(fixedpt start, fixedpt end, fixedpt value)
 {
-	end -= start;
-	return end * value * value + start;
+	//end -= start;
+	//return end * value * value + start;
+	end = end - start;
+	fixedpt valueSqrd = fixedpt_mul(value, value);
+	return fixedpt_mul(end, valueSqrd) + start;
 }
 
-float easeOutQuad(float start, float end, float value)
+fixedpt easeOutQuad(fixedpt start, fixedpt end, fixedpt value)
 {
-	end -= start;
-	return -end * value * (value - 2) + start;
-}
-
-float easeInstant(float start, float end, float value)
-{
-	return end;
+	//end -= start;
+	//return -end * value * (value - 2) + start;
+	end = end - start;
+	end = fixedpt_mul(end, fixedpt_fromint(-1));
+	value = fixedpt_mul(value, value - FIXEDPT_TWO);
+	return fixedpt_mul(end, value) + start;
 }
 
 void setupMixer()
 {
 	fillRandomBuffer();
-
-	AudioEffect effect = {};
-	effect.type = SINE;
-	effect.attackTime = 0.1;
-	effect.sustainTime = 0.2;
-	effect.decayTime = 0.1;
-	effect.attackFrequency = 200;
-	effect.sustainFrequency = 3000;
-	effect.decayFrequency = 100;
-	effect.frequencyAttackTransition = EASE_IN;
-	effect.frequencyDecayTransition = EASE_OUT;
-
-
-	renderEffect(effect);
+	
+	
+	
+	//renderAudio();
+	//renderEffect(effect);
 	/*
-	float t = 0;
-	float dt = 0.01;
 
-	for (int i = 0; i < SAMPLES; i++)
+	/*
+	fixedpt t = 0;
+	fixedpt dt = fixedpt_rconst(0.008);
+
+	for (uint16_t i = 0; i < SAMPLES; ++i)
 	{
-		sampleBuffer[2*i] = (int16_t)(noiseWave(t) * 20760);
-		sampleBuffer[2*i+1] = (int16_t)(sawtoothWave(t) * 20760);
-
+		fixedpt fpvalue = sineWave(t);
+		sampleBuffer[2*i] = (int16_t)fixedpt_toint(fixedpt_mul(fpvalue, fixedpt_fromint(5000)));
+		//fpvalue = squareWave(t);
+		//sampleBuffer[2*i + 1] = (int16_t)fixedpt_toint(fixedpt_mul(fpvalue, fixedpt_fromint(5000)));
+		//float lerp = ((float)i)/(nAttackSamples-1);
+		fixedpt lerp = fixedpt_div(fixedpt_fromint(i), fixedpt_fromint(SAMPLES) - FIXEDPT_ONE);
+		sampleBuffer[2*i+1] = (int16_t)fixedpt_toint(fixedpt_mul(lerp, fixedpt_fromint(5000)));
 		t += dt;
-		dt += 0.00001;
 	}
 	*/
 }
 
+void stopProgram()
+{
+	int a = 2;
+	a++;
+}
 
+void playEffect(AudioEffect effect)
+{
+	uint8_t index = 0xFF;
 
+	for (uint8_t channelIndex = 0; channelIndex < NUMBER_OF_EFFECTS; channelIndex++)
+	{
+		if ((activeChannels & (1 << channelIndex)) == 0)
+		{
+			index = channelIndex;
+			break;
+		}
+	}
+
+	if (index == 0xFF)
+	{
+		return; // No free sample spot, so we ignore the request.
+	}
+
+	ChannelSample channelSample = {};
+
+	channelSample.nAttackSamples = (uint16_t)(effect.attackTime * SAMPLES_PER_SECOND);
+	channelSample.nSustainSamples = (uint16_t)(effect.sustainTime * SAMPLES_PER_SECOND);
+	channelSample.nDecaySamples = (uint16_t)(effect.decayTime * SAMPLES_PER_SECOND);
+
+	channelSample.startSampleTime = writeCursor;
+	channelSample.endSampleTime = writeCursor + channelSample.nAttackSamples + channelSample.nSustainSamples + channelSample.nDecaySamples;
+
+	channelSample.sustainStartSampleTime = channelSample.startSampleTime + channelSample.nAttackSamples;
+	channelSample.decayStartSampleTime = channelSample.sustainStartSampleTime + channelSample.nSustainSamples;
+
+	switch (effect.type)
+	{
+		case SINE : { channelSample.waveFuncPointer = &sineWave; } break;
+		case SQUARE : { channelSample.waveFuncPointer = &squareWave; } break;
+		case SAWTOOTH : { channelSample.waveFuncPointer = &sawtoothWave; } break;
+		case NOISE : { channelSample.waveFuncPointer = &noiseWave; } break;
+	}
+
+	switch (effect.volumeAttackTransition)
+	{
+		case EASE_IN : { channelSample.volumeAttackFuncPointer = &easeInQuad; } break;
+		case EASE_OUT : { channelSample.volumeAttackFuncPointer = &easeOutQuad; } break;
+	}
+
+	switch (effect.volumeDecayTransition)
+	{
+		case EASE_IN : { channelSample.volumeDecayFuncPointer = &easeInQuad; } break;
+		case EASE_OUT : { channelSample.volumeDecayFuncPointer = &easeOutQuad; } break;
+	}
+
+	switch (effect.frequencyAttackTransition)
+	{
+		case EASE_IN : { channelSample.frequenceAttackFuncPointer = &easeInQuad; } break;
+		case EASE_OUT : { channelSample.frequenceAttackFuncPointer = &easeOutQuad; } break;
+	}
+
+	switch (effect.frequencyDecayTransition)
+	{
+		case EASE_IN : { channelSample.frequenceDecayFuncPointer = &easeInQuad; } break;
+		case EASE_OUT : { channelSample.frequenceDecayFuncPointer = &easeOutQuad; } break;
+	}
+
+	channelSample.attakStartDt = fixedpt_div(fixedpt_fromint(effect.attackFrequency), fixedpt_fromint(SAMPLES_PER_SECOND));
+	channelSample.sustainDt = fixedpt_div(fixedpt_fromint(effect.sustainFrequency), fixedpt_fromint(SAMPLES_PER_SECOND));
+	channelSample.decayEndDt = fixedpt_div(fixedpt_fromint(effect.decayFrequency), fixedpt_fromint(SAMPLES_PER_SECOND));
+
+	channelSample.t = 0;
+
+	channels[index] = channelSample;
+	activeChannels |= (1 << index); // Set the channel as active
+}
+
+void renderAudio()
+{	
+	for (uint32_t sampleIndex = writeCursor; sampleIndex < readCursor + WRITE_AHEAD; sampleIndex++)
+	{
+		int16_t rightSample = 0;
+		int16_t leftSample = 0;
+
+		for (uint8_t index = 0; index < NUMBER_OF_EFFECTS; index++)
+		{
+			if ((activeChannels & (1 << index)) == 0) { continue; } // Channel is not active, so we skip it
+
+			fixedpt fpvalue = (*channels[index].waveFuncPointer)(channels[index].t);
+			rightSample += (int16_t)fixedpt_toint(fixedpt_mul(fpvalue, fixedpt_fromint(20000)));
+
+			if ((sampleIndex >= channels[index].startSampleTime) && (sampleIndex < channels[index].sustainStartSampleTime))
+			{
+				// Attack
+				fixedpt lerp = fixedpt_div(fixedpt_fromint(sampleIndex - channels[index].startSampleTime), fixedpt_fromint(channels[index].nAttackSamples));
+				fixedpt dt = (*channels[index].frequenceAttackFuncPointer)(channels[index].attakStartDt, channels[index].sustainDt, lerp);
+				channels[index].dt = dt;
+				channels[index].t += dt;
+				
+			}
+			else if ((sampleIndex >= channels[index].sustainStartSampleTime) && (sampleIndex < channels[index].decayStartSampleTime))
+			{
+				// Sustain
+				channels[index].t += channels[index].dt;
+			}
+			else if ((sampleIndex >= channels[index].decayStartSampleTime) && (sampleIndex < channels[index].endSampleTime))
+			{
+				// Decay
+				fixedpt lerp = fixedpt_div(fixedpt_fromint(sampleIndex - channels[index].decayStartSampleTime), fixedpt_fromint(channels[index].nDecaySamples));
+				fixedpt dt = (*channels[index].frequenceAttackFuncPointer)(channels[index].sustainDt, channels[index].decayEndDt, lerp);
+				channels[index].t += dt;
+			}
+			else if (sampleIndex >= channels[index].endSampleTime)
+			{
+				// Sample has been completely rendered
+				activeChannels &= ~(1 << index); // Free up the channel
+				stopProgram();
+			}
+
+		}
+
+		sampleBuffer[(2*writeCursor) % (2*SAMPLES)] = rightSample;
+		//sampleBuffer[2*(writeCursor % SAMPLES) + 1] = leftSample;
+
+		writeCursor++;
+	}
+}
+/*
 void renderEffect(AudioEffect effect)
 {
-	
 
-	float (*waveFuncPointer)(float);
+	fixedpt (*waveFuncPointer)(fixedpt);
 
-	float (*volumeAttackFuncPointer)(float, float, float);
-	float (*volumeDecayFuncPointer)(float, float, float);
+	fixedpt (*volumeAttackFuncPointer)(fixedpt, fixedpt, fixedpt);
+	fixedpt (*volumeDecayFuncPointer)(fixedpt, fixedpt, fixedpt);
 
-	float (*frequenceAttackFuncPointer)(float, float, float);
-	float (*frequenceDecayFuncPointer)(float, float, float);
+	fixedpt (*frequenceAttackFuncPointer)(fixedpt, fixedpt, fixedpt);
+	fixedpt (*frequenceDecayFuncPointer)(fixedpt, fixedpt, fixedpt);
 
 	switch (effect.type)
 	{
 		case SINE : { waveFuncPointer = &sineWave; } break;
 		case SQUARE : { waveFuncPointer = &squareWave; } break;
-		case TRIANGE : { waveFuncPointer = &sineWave; } break;
 		case SAWTOOTH : { waveFuncPointer = &sawtoothWave; } break;
 		case NOISE : { waveFuncPointer = &noiseWave; } break;
 	}
 
 	switch (effect.volumeAttackTransition)
 	{
-		case INSTANT : { volumeAttackFuncPointer = &easeInstant; } break;
 		case EASE_IN : { volumeAttackFuncPointer = &easeInQuad; } break;
 		case EASE_OUT : { volumeAttackFuncPointer = &easeOutQuad; } break;
 	}
 
 	switch (effect.volumeDecayTransition)
 	{
-		case INSTANT : { volumeDecayFuncPointer = &easeInstant; } break;
 		case EASE_IN : { volumeDecayFuncPointer = &easeInQuad; } break;
 		case EASE_OUT : { volumeDecayFuncPointer = &easeOutQuad; } break;
 	}
 
 	switch (effect.frequencyAttackTransition)
 	{
-		case INSTANT : { frequenceAttackFuncPointer = &easeInstant; } break;
 		case EASE_IN : { frequenceAttackFuncPointer = &easeInQuad; } break;
 		case EASE_OUT : { frequenceAttackFuncPointer = &easeOutQuad; } break;
 	}
 
 	switch (effect.frequencyDecayTransition)
 	{
-		case INSTANT : { frequenceDecayFuncPointer = &easeInstant; } break;
 		case EASE_IN : { frequenceDecayFuncPointer = &easeInQuad; } break;
 		case EASE_OUT : { frequenceDecayFuncPointer = &easeOutQuad; } break;
 	}
@@ -163,60 +329,70 @@ void renderEffect(AudioEffect effect)
 	uint16_t nSustainSamples = (uint16_t)(effect.sustainTime * SAMPLES_PER_SECOND);
 	uint16_t nDecaySamples = (uint16_t)(effect.decayTime * SAMPLES_PER_SECOND);
 
-	float attakStartDt = ((float)effect.attackFrequency)/SAMPLES_PER_SECOND;
-	float sustainDt = ((float)effect.sustainFrequency)/SAMPLES_PER_SECOND;
-	float decayEndDt = ((float)effect.decayFrequency)/SAMPLES_PER_SECOND;
+	//float attakStartDt = ((float)effect.attackFrequency)/SAMPLES_PER_SECOND;
+	//float sustainDt = ((float)effect.sustainFrequency)/SAMPLES_PER_SECOND;
+	//float decayEndDt = ((float)effect.decayFrequency)/SAMPLES_PER_SECOND;
 
-	float t = 0;
-	float dt = 0;
+	fixedpt attakStartDt = fixedpt_div(fixedpt_fromint(effect.attackFrequency), fixedpt_fromint(SAMPLES_PER_SECOND));
+	fixedpt sustainDt = fixedpt_div(fixedpt_fromint(effect.sustainFrequency), fixedpt_fromint(SAMPLES_PER_SECOND));
+	fixedpt decayEndDt = fixedpt_div(fixedpt_fromint(effect.decayFrequency), fixedpt_fromint(SAMPLES_PER_SECOND));
 
-	for (int i = 0; i < nAttackSamples; ++i)
+	fixedpt t = 0;
+	fixedpt dt = 0;
+
+	uint16_t start = 0;
+	uint16_t end = nAttackSamples;
+	for (uint16_t i = start; i < end; ++i)
 	{
-		float lerp = ((float)i)/(nAttackSamples-1);
+		//float lerp = ((float)i)/(nAttackSamples-1);
+		fixedpt lerp = fixedpt_div(fixedpt_fromint(i), fixedpt_fromint(nAttackSamples) - FIXEDPT_ONE);
 		dt = (*frequenceAttackFuncPointer)(attakStartDt, sustainDt, lerp);
 
-		int16_t value = (int16_t)((*waveFuncPointer)(t) * 20760);
-		sampleBuffer[2*i] = value;
-		sampleBuffer[2*i + 1] = (int16_t)(dt * 10000);
+		//int16_t value = (int16_t)((*waveFuncPointer)(t) * 20760);
+		fixedpt fpvalue = (*waveFuncPointer)(t);
+		sampleBuffer[2*i] = (int16_t)fixedpt_toint(fixedpt_mul(fpvalue, fixedpt_fromint(20760)));
+		sampleBuffer[2*i + 1] = (int16_t)(fixedpt_toint(fixedpt_mul(dt, fixedpt_fromint(1000))));
 		t += dt;
 	}
-
+	
 	dt = sustainDt;
-	uint16_t offset = nAttackSamples;
 
-	for (int i = 0; i < nSustainSamples; ++i)
+	start = nAttackSamples;
+	end = nAttackSamples + nSustainSamples;
+	for (uint16_t i = start; i < end; ++i)
 	{
-		int16_t value = (int16_t)((*waveFuncPointer)(t) * 20760);
-		sampleBuffer[offset + 2*i] = value;
-		sampleBuffer[2*i + 1] = (int16_t)(dt * 10000);
+
+		fixedpt fpvalue = (*waveFuncPointer)(t);
+		sampleBuffer[2*i] = (int16_t)fixedpt_toint(fixedpt_mul(fpvalue, fixedpt_fromint(20760)));;
+		sampleBuffer[2*i + 1] = (int16_t)(fixedpt_toint(fixedpt_mul(dt, fixedpt_fromint(1000))));
 		t += dt;
 	}
 
-	offset += nSustainSamples;
-
-	for (int i = 0; i < nDecaySamples; ++i)
+	start = nAttackSamples + nSustainSamples;
+	end = nAttackSamples + nSustainSamples + nDecaySamples;
+	for (uint16_t i = start; i < end; ++i)
 	{
-		float lerp = ((float)i)/(nAttackSamples-1);
+		//float lerp = ((float)(i - start))/((float)(end - start));
+		fixedpt lerp = fixedpt_div(fixedpt_fromint(i) - fixedpt_fromint(start), fixedpt_fromint(end - start));
 		dt = (*frequenceDecayFuncPointer)(sustainDt, decayEndDt, lerp);
 
-		int16_t value = (int16_t)((*waveFuncPointer)(t) * 20760);
-		sampleBuffer[offset + 2*i] = value;
-		sampleBuffer[2*i + 1] = (int16_t)(dt * 10000);
+		//int16_t value = (int16_t)((*waveFuncPointer)(t) * 20760);
+		fixedpt fpvalue = (*waveFuncPointer)(t);
+		sampleBuffer[2*i] = (int16_t)fixedpt_toint(fixedpt_mul(fpvalue, fixedpt_fromint(20760)));;
+		sampleBuffer[2*i + 1] = (int16_t)(fixedpt_toint(fixedpt_mul(dt, fixedpt_fromint(1000))));
 		t += dt;
 	}
-	
-	
 }
-
-AudioSample getNextSample() {
+*/
+inline AudioSample getNextSample() {
 	AudioSample sample = {};
 
-	sample.right = sampleBuffer[2*readCursor];
-	sample.left = sampleBuffer[2*readCursor + 1];
-
+	sample.right = sampleBuffer[(2*readCursor) % (2*SAMPLES)];
+	//sample.right = sampleBuffer[(2*readCursor)];
+	//sample.left = sampleBuffer[2*(readCursor % SAMPLES) + 1];
 	readCursor++;
 
-	if (readCursor >= SAMPLES) { readCursor = 0; }
+	//if (readCursor >= SAMPLES) { readCursor = 0; }
 
 	return sample;
 }
