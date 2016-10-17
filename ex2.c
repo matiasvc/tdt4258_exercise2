@@ -5,7 +5,7 @@
 #include "audioMixer.h"
 
 #define   FIXEDPT_WBITS 16 // Use 16 bits of the fixed point type for whole number part
-#define   SAMPLE_PERIOD 875 // Gives 16000 samples per second
+#define   SAMPLE_PERIOD 1750 // Gives 8000 samples per second
 #define   FRAME_PERIOD  58333 // Gives 30 frames per second
 
 /* Declaration of peripheral setup functions */
@@ -15,14 +15,14 @@ void setupDAC();
 void setupNVIC();
 void setupMixer();
 
-static uint8_t lastInput = 0xFF;
+uint8_t getInput();
 
 /* Your code will start executing here */
 int main(void)
 {
 	/* Call the peripheral setup functions */
 	setupGPIO();
-   //setupMixer();
+   setupMixer();
 	setupDAC();
 	setupTimer(SAMPLE_PERIOD, FRAME_PERIOD);
 
@@ -33,29 +33,34 @@ int main(void)
 	/* TODO for higher energy efficiency, sleep while waiting for interrupts
 	   instead of infinite loop for busy-waiting
 	 */
-
+   /*
    AudioEffect effect = {};
    effect.type = NOISE;
-   effect.attackTime = 0.1;
-   effect.sustainTime = 0.3;
-   effect.decayTime = 0.5;
+   effect.attackTime = 0.2;
+   effect.sustainTime = 0.1;
+   effect.decayTime = 0.2;
    effect.attackVolume = 
    effect.attackFrequency = 100;
    effect.sustainFrequency = 1000;
-   effect.decayFrequency = 300;
+   effect.decayFrequency = 100;
    effect.frequencyAttackTransition = EASE_IN;
    effect.frequencyDecayTransition = EASE_OUT;
-	while (1)
-   {
-      *GPIO_PA_DOUT = 0x0000;
-      renderAudio();
-      *GPIO_PA_DOUT = 0xFF00;
-      playEffect(effect);
-      uint8_t currentInput = *GPIO_PC_DIN;
+   */
+   while (1)
+   { 
+      
+      uint8_t buttonPressed = getInput();
 
-      if (currentInput != lastInput)
-      {  
-         lastInput = currentInput;
+      switch(buttonPressed)
+      {
+         case 1: { playEffect(0); } break;
+         case 2: { playEffect(1); } break;
+         case 3: { playEffect(2); } break;
+         case 4: { playEffect(3); } break;
+         case 5: { playEffect(4); } break;
+         case 6: { playEffect(5); } break;
+         case 7: { playEffect(6); } break;
+         case 8: { playEffect(7); } break;
       }
 
    }

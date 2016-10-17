@@ -4,6 +4,12 @@
 #include <stdlib.h>
 #include "fixedptc.h"
 
+typedef struct
+{
+	int16_t right;
+	int16_t left;
+} AudioSample;
+
 typedef enum
 {
 	 SINE,
@@ -22,9 +28,16 @@ typedef struct
 {
 	EffectType type;
 
-	uint16_t attackTime;
-	uint16_t sustainTime;
-	uint16_t decayTime;
+	float attackTime;
+	float sustainTime;
+	float decayTime;
+
+	uint16_t attackVolume;
+	uint16_t sustainVolume;
+	uint16_t decayVolume;
+
+	TransitionType volumeAttackTransition;
+	TransitionType volumeDecayTransition;
  
 	uint16_t attackFrequency;
 	uint16_t sustainFrequency;
@@ -35,7 +48,7 @@ typedef struct
 } AudioEffect;
 
 void setupMixer();
-void playEffect(uint8_t index);
-int16_t getNextSample();
+void renderAudio();
+AudioSample getNextSample();
 
 #endif

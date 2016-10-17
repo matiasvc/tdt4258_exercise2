@@ -3,19 +3,16 @@
 
 #include "efm32gg.h"
 
+static uint8_t lastInput = 0xFF;
+
 /* function to set up GPIO mode and interrupts*/
 void setupGPIO()
 {
-	/* TODO set input and output pins for the joystick */
-
-	/* Example of HW access from C code: turn on joystick LEDs D4-D8
-	   check efm32gg.h for other useful register definitions
-	 */
-	*CMU_HFPERCLKEN0 |= CMU2_HFPERCLKEN0_GPIO;	/* enable GPIO clock */
+	*CMU_HFPERCLKEN0 |= CMU2_HFPERCLKEN0_GPIO;	// enable GPIO clock
 
 	// Output
-	*GPIO_PA_CTRL = 2;	/* set high drive strength */
-	*GPIO_PA_MODEH = 0x55555555;	/* set pins A8-15 as output */
+	*GPIO_PA_CTRL = 2;	// set high drive strength
+	*GPIO_PA_MODEH = 0x55555555; // set pins A8-15 as output
 	*GPIO_PA_DOUT = 0xFF00; // Turn off LEDs
 
 	// Input
@@ -25,4 +22,27 @@ void setupGPIO()
 	//*GPIO_EXTIPSELL = 0x22222222;
 	//*GPIO_EXTIFALL = 0xFF;
 	//*GPIO_IEN = 0xFF;
+}
+
+
+uint8_t getInput()
+{
+	uint8_t currentInput = *GPIO_PC_DIN;
+	*GPIO_PA_DOUT = currentInput << 8;
+
+	uint8_t buttonPressed = 0;
+
+	for (uint8_t i = 1; i <= 8; ++i)
+	{
+		uint8_t lastState = (~lastInput) & (1 << (i-1));
+		uint8_t currentState = (~currentInput) & (1 << (i-1));
+
+		if (!lastState && currentState)
+		{
+			buttonPressed = i;
+			break;
+		}
+	}
+	lastInput = currentInput;
+	return buttonPressed;
 }
