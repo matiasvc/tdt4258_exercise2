@@ -10,7 +10,7 @@
 #define EFFECT0_SAMPLES 1500
 AudioEffect effect0 = { // E7
 	SINE, // Type
-	20000, // Volume
+	15000, // Volume
 	0, // Attack Time
 	1000, // Sustain Time
 	0, // Decay Time
@@ -24,7 +24,7 @@ AudioEffect effect0 = { // E7
 #define EFFECT1_SAMPLES 1500
 AudioEffect effect1 = { // C7
 	SINE, // Type
-	20000, // Volume
+	15000, // Volume
 	0, // Attack Time
 	1000, // Sustain Time
 	0, // Decay Time
@@ -35,24 +35,24 @@ AudioEffect effect1 = { // C7
 	EASE_OUT // Frequency Decay Transition
 };
 
-#define EFFECT2_SAMPLES 1500
+#define EFFECT2_SAMPLES 3000
 AudioEffect effect2 = { // G7
 	SINE, // Type
-	20000, // Volume
+	15000, // Volume
 	0, // Attack Time
 	1000, // Sustain Time
 	0, // Decay Time
 	0, // Attack Frequency
-	2093, // Sustain Frequency
+	3136, // Sustain Frequency
 	0, // Decay Frequency
 	EASE_IN, // Frequency Attack Tranition
 	EASE_OUT // Frequency Decay Transition
 };
 
-#define EFFECT3_SAMPLES 1500
+#define EFFECT3_SAMPLES 1000
 AudioEffect effect3 = { // G6
-	NOISE, // Type
-	20000, // Volume
+	SINE, // Type
+	15000, // Volume
 	0, // Attack Time
 	1000, // Sustain Time
 	0, // Decay Time
@@ -63,57 +63,57 @@ AudioEffect effect3 = { // G6
 	EASE_OUT // Frequency Decay Transition
 };
 
-#define EFFECT4_SAMPLES 4000
-AudioEffect effect4 = {
+#define EFFECT4_SAMPLES 1500
+AudioEffect effect4 = { // Shoot effect
 	SINE, // Type
-	20000, // Volume
-	1000, // Attack Time
-	2000, // Sustain Time
-	1000, // Decay Time
-	100, // Attack Frequency
-	1000, // Sustain Frequency
-	100, // Decay Frequency
+	15000, // Volume
+	0, // Attack Time
+	0, // Sustain Time
+	1500, // Decay Time
+	0, // Attack Frequency
+	2000, // Sustain Frequency
+	30, // Decay Frequency
 	EASE_IN, // Frequency Attack Tranition
 	EASE_OUT // Frequency Decay Transition
 };
 
-#define EFFECT5_SAMPLES 4000
-AudioEffect effect5 = {
-	SINE, // Type
-	20000, // Volume
-	1000, // Attack Time
-	2000, // Sustain Time
-	1000, // Decay Time
-	100, // Attack Frequency
-	1000, // Sustain Frequency
-	100, // Decay Frequency
-	EASE_IN, // Frequency Attack Tranition
-	EASE_OUT // Frequency Decay Transition
-};
-
-#define EFFECT6_SAMPLES 4000
-AudioEffect effect6 = {
-	SINE, // Type
-	20000, // Volume
-	1000, // Attack Time
-	2000, // Sustain Time
-	1000, // Decay Time
-	100, // Attack Frequency
-	1000, // Sustain Frequency
-	100, // Decay Frequency
-	EASE_IN, // Frequency Attack Tranition
-	EASE_OUT // Frequency Decay Transition
-};
-
-#define EFFECT7_SAMPLES 4000
-AudioEffect effect7 = {
+#define EFFECT5_SAMPLES 7000
+AudioEffect effect5 = { // Alert effect
 	NOISE, // Type
-	20000, // Volume
-	1000, // Attack Time
-	2000, // Sustain Time
-	1000, // Decay Time
+	15000, // Volume
+	2000, // Attack Time
+	3000, // Sustain Time
+	2000, // Decay Time
+	200, // Attack Frequency
+	800, // Sustain Frequency
+	200, // Decay Frequency
+	EASE_IN, // Frequency Attack Tranition
+	EASE_OUT // Frequency Decay Transition
+};
+
+#define EFFECT6_SAMPLES 800
+AudioEffect effect6 = { // Enemy shoot
+	SQUARE, // Type
+	15000, // Volume
+	200, // Attack Time
+	0, // Sustain Time
+	600, // Decay Time
 	100, // Attack Frequency
-	1000, // Sustain Frequency
+	4000, // Sustain Frequency
+	100, // Decay Frequency
+	EASE_IN, // Frequency Attack Tranition
+	EASE_OUT // Frequency Decay Transition
+};
+
+#define EFFECT7_SAMPLES 10000
+AudioEffect effect7 = { // Death sound
+	SAWTOOTH, // Type
+	15000, // Volume
+	0, // Attack Time
+	0, // Sustain Time
+	10000, // Decay Time
+	100, // Attack Frequency
+	6000, // Sustain Frequency
 	100, // Decay Frequency
 	EASE_IN, // Frequency Attack Tranition
 	EASE_OUT // Frequency Decay Transition
@@ -131,7 +131,9 @@ uint16_t playEffectLength = 0;
 uint16_t playEffectReadCursor = 0;
 int16_t *playEffectBufferPtr;
 
+static uint8_t melodyIndex = 0;
 static uint8_t melodySamples[] = {0, 0, 0, 1, 0, 2, 3};
+bool playingMelody = true;
 
 int16_t sample0Buffer[EFFECT0_SAMPLES];
 int16_t sample1Buffer[EFFECT1_SAMPLES];
@@ -194,7 +196,9 @@ fixedpt sawtoothWave(fixedpt t)
 fixedpt noiseWave(fixedpt t)
 {
 	uint32_t index = fixedpt_toint(t) % RANDOM_BUFFER_LENGTH;
+	#pragma GCC diagnostic ignored "-Woverflow" // Ignore overflow error, as this is by design
 	fixedpt value = fixedpt_div(fixedpt_fromint(index), fixedpt_fromint(RANDOM_MAX));
+	#pragma GCC diagnostic pop
 	return fixedpt_mul(value, FIXEDPT_TWO) - FIXEDPT_ONE;
 }
 
@@ -338,6 +342,7 @@ void playEffect(uint8_t index)
 {
 	isPlaying = true;
 	playEffectReadCursor = 0;
+	*SCR = 0b0100; // Disable sleep on exit so timer will continue
 	switch(index)
 	{
 		case 0: { playEffectLength = EFFECT0_SAMPLES; playEffectBufferPtr = sample0Buffer; } break;
@@ -354,14 +359,19 @@ void playEffect(uint8_t index)
 
 /**
 	Plays the melody.
+	@return 	Is the melody done playing
 **/
-void playMelody()
+bool playNextMelodySample()
 {
-	for (int i = 0; i < 7; ++i)
-	{
-		playEffect(melodySamples[i]);
+	playEffect(melodySamples[melodyIndex]);
+	melodyIndex++;
 
-		while (isPlaying) ;
+	if(melodyIndex >= 7) // Is the melody done?
+	{
+		playingMelody = false;
+		return true;
+	} else {
+		return false;
 	}
 }
 
@@ -382,6 +392,10 @@ int16_t getNextSample()
 		if (playEffectReadCursor >= playEffectLength)
 		{
 			isPlaying = false;
+			if (!playingMelody)
+			{
+				*SCR = 0b0110; // Reenable sleep on exit
+			}
 		}
 	}
 

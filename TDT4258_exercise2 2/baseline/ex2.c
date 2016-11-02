@@ -1,11 +1,12 @@
+#define   FIXEDPT_WBITS 16 // Use 16 bits of the fixed point type for whole number part
+#define   SAMPLE_PERIOD 1750 // Gives 8000 samples per second
+
 #include <stdint.h>
 #include <stdbool.h>
 
 #include "efm32gg.h"
 #include "audioMixer.h"
 
-#define   FIXEDPT_WBITS 16 // Use 16 bits of the fixed point type for whole number part
-#define   SAMPLE_PERIOD 1750 // Gives 8000 samples per second
 
 /* Declaration of peripheral setup functions */
 void setupGPIO();
@@ -53,9 +54,8 @@ int main(void)
 
 void setupNVIC()
 {
-   // Enable timer interrups in NVIC
-   // GPIO_EVEN | GPIO_ODD | TIMER1
-   *ISER0 = *ISER0 | (1 << 1) | (1 << 11) | (1 << 12);
+   // Enable TIMER1 interrups in NVIC
+   *ISER0 = *ISER0 | (1 << 12);
 }
 
 /* if other interrupt handlers are needed, use the following names: 
